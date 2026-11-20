@@ -26,13 +26,21 @@ if (Get-Command ollama -ErrorAction SilentlyContinue) {
         Write-Warning "Could not connect to Ollama endpoint: $_"
     }
 
-    if (Get-Command deeptutor -ErrorAction SilentlyContinue) {
-        Write-Host "Applying DeepTutor configuration..." -ForegroundColor Cyan
-        deeptutor config apply scripts/deeptutor_setup.json --check
-        deeptutor config apply scripts/deeptutor_setup.json
-        deeptutor doctor --format json
+    $SetupJson = Join-Path $PSScriptRoot "deeptutor_setup.json"
+    if (Test-Path $SetupJson) {
+        $rawCfg = Get-Content -Raw $SetupJson
+        if ($rawCfg -match "YOUR_LLM_MODEL") {
+            Write-Warning "Replace 'YOUR_LLM_MODEL' in $SetupJson before applying DeepTutor config."
+        } elseif (Get-Command deeptutor -ErrorAction SilentlyContinue) {
+            Write-Host "Applying DeepTutor configuration from $SetupJson..." -ForegroundColor Cyan
+            deeptutor config apply $SetupJson --check
+            deeptutor config apply $SetupJson
+            deeptutor doctor --format json
+        } else {
+            Write-Host "DeepTutor CLI not found in PATH; configuration ready at $SetupJson" -ForegroundColor Yellow
+        }
     } else {
-        Write-Host "DeepTutor CLI not found in PATH; configuration ready at scripts/deeptutor_setup.json" -ForegroundColor Yellow
+        Write-Warning "Configuration file not found at $SetupJson"
     }
 } else {
     Write-Warning "Ollama is not installed or not in PATH."

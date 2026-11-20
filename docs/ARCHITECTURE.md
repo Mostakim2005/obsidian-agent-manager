@@ -74,13 +74,13 @@ flowchart LR
 ```
 
 * **Code Anchors (Grep Targets):**
-  * `plugin/src/editor.ts` -> `applyEdit`, `replaceSelectionUndoSafe`, `replaceLinesUndoSafe`
+  * `plugin/src/editor.ts` -> `applyEdit`
 
 ---
 
 ### [SUBSYSTEM: Multi-Vault-Discovery] | Aliases: discovery file, vaults.json, multi-vault
 > **1-Line Summary:** Maintains an active directory registry in `~/.obsidian-agent-manager/vaults.json` so CLI tools can find running vault ports and auth tokens automatically.
-* **How It Works (Plain English):** On startup, `BridgeServer` writes its port, token, vault name, and absolute vault path to `~/.obsidian-agent-manager/vaults.json`. On shutdown, it cleanly unregisters its entry.
+* **How It Works (Plain English):** On startup, `BridgeServer` atomically writes its port, URLs, vault name, and absolute vault path (omitting the secret Bearer token for security) to `~/.obsidian-agent-manager/vaults.json`. On shutdown, it cleanly unregisters its entry.
 * **Code Anchors (Grep Targets):**
   * `plugin/src/server.ts` -> `updateDiscovery`, `discoveryFile`
 

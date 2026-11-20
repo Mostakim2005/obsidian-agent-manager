@@ -78,7 +78,7 @@ flowchart LR
 * **Strict Rule:** **NEVER** overwrite an active note using file system writes (`app.vault.adapter.write` or Node `fs`) when an open editor instance exists.
 * **Why This Trap Exists (Plain English):** Obsidian tracks undo history in memory via CodeMirror transactions. Overwriting the file on disk bypasses CodeMirror, wiping out the user's undo/redo history (`Ctrl+Z`) and potentially creating race conditions with Obsidian's auto-save buffer.
 * **Protected Code Anchors (Grep Targets):**
-  * `plugin/src/editor.ts` -> `replaceSelectionUndoSafe`, `replaceLinesUndoSafe`
+  * `plugin/src/editor.ts` -> `applyEdit`
 
 ---
 

@@ -34,7 +34,7 @@
 * **User Intention (Non-Negotiable):** Edits suggested or applied by an AI agent must never corrupt notes or break the user's standard Obsidian undo history.
 * **Visual / UI Behavior:** Modifies note content in place with immediate visual feedback in the active editor.
 * **Code Anchors (Grep Targets):**
-  * `plugin/src/editor.ts` -> `applyEdit`, `replaceSelectionUndoSafe`, `replaceLinesUndoSafe`
+  * `plugin/src/editor.ts` -> `applyEdit`
 
 ### [FEATURE: Built-In-Streamable-MCP-Server] | Aliases: mcp server, jsonrpc, tools list, antigravity mcp, claude code mcp
 > **1-Line Summary:** Built-in JSON-RPC 2.0 Streamable HTTP Model Context Protocol endpoint on `POST /mcp` exposing 8 tools (including note creation) to external coding agents without extra Node processes.

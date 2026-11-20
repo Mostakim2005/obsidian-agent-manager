@@ -77,9 +77,20 @@ export default class AgentManagerPlugin extends Plugin {
       })
     );
 
+    await this.restartServer(false);
+  }
+
+  async restartServer(notify = true): Promise<void> {
+    if (this.server) {
+      await this.server.stop();
+    }
     this.server = new BridgeServer(this.app, () => this.settings, this.inbox);
     try {
       await this.server.start();
+      this.statusBarEl?.setText(`Agent :${this.settings.port} (${this.inbox.size()} pinned)`);
+      if (notify) {
+        new Notice(`Obsidian Agent Manager restarted on 127.0.0.1:${this.settings.port}`);
+      }
     } catch (err) {
       this.statusBarEl?.setText(`Agent :${this.settings.port} (offline)`);
       new Notice(`Obsidian Agent Manager failed to start on port ${this.settings.port}: ${String(err)}`);

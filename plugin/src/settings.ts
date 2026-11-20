@@ -10,18 +10,25 @@ export class AgentManagerSettingTab extends PluginSettingTab {
   display(): void {
     const { containerEl } = this;
     containerEl.empty();
-    containerEl.createEl("h2", { text: "Obsidian Agent Manager Settings" });
+    new Setting(containerEl).setName("Obsidian Agent Manager").setHeading();
 
     new Setting(containerEl)
       .setName("Localhost port")
-      .setDesc("Binds strictly to 127.0.0.1. Restart plugin after changing.")
+      .setDesc("Binds strictly to 127.0.0.1 (valid range: 1024–65535).")
       .addText((t) =>
         t.setValue(String(this.plugin.settings.port)).onChange(async (val) => {
           const parsed = Number(val);
           if (Number.isInteger(parsed) && parsed >= 1024 && parsed <= 65535) {
             this.plugin.settings.port = parsed;
             await this.plugin.saveSettings();
+          } else if (val.trim().length > 0) {
+            new Notice("Port must be an integer between 1024 and 65535.");
           }
+        })
+      )
+      .addButton((b) =>
+        b.setButtonText("Restart Bridge").onClick(async () => {
+          await this.plugin.restartServer(true);
         })
       );
 
@@ -64,6 +71,19 @@ export class AgentManagerSettingTab extends PluginSettingTab {
         t.setValue(this.plugin.settings.deepTutorUrl).onChange(async (val) => {
           this.plugin.settings.deepTutorUrl = val.trim();
           await this.plugin.saveSettings();
+        })
+      );
+
+    new Setting(containerEl)
+      .setName("DeepTutor default knowledge base")
+      .setDesc("Default KB name reported to external sync scripts.")
+      .addText((t) =>
+        t.setValue(this.plugin.settings.deepTutorDefaultKb).onChange(async (val) => {
+          const cleaned = val.trim();
+          if (cleaned) {
+            this.plugin.settings.deepTutorDefaultKb = cleaned;
+            await this.plugin.saveSettings();
+          }
         })
       );
   }
