@@ -37,12 +37,21 @@
   * `plugin/src/editor.ts` -> `applyEdit`, `replaceSelectionUndoSafe`, `replaceLinesUndoSafe`
 
 ### [FEATURE: Built-In-Streamable-MCP-Server] | Aliases: mcp server, jsonrpc, tools list, antigravity mcp, claude code mcp
-> **1-Line Summary:** Built-in JSON-RPC 2.0 Streamable HTTP Model Context Protocol endpoint on `POST /mcp` exposing 7 tools to external coding agents without extra Node processes.
+> **1-Line Summary:** Built-in JSON-RPC 2.0 Streamable HTTP Model Context Protocol endpoint on `POST /mcp` exposing 8 tools (including note creation) to external coding agents without extra Node processes.
 * **User Intention (Non-Negotiable):** One-click integration with modern AI harnesses (Antigravity, Claude Code, Cursor) using standard MCP configuration.
 * **Visual / UI Behavior:** Settings tab provides a "Copy MCP Config" button that copies ready-to-paste JSON.
 * **Code Anchors (Grep Targets):**
   * `plugin/src/mcp.ts` -> `handleMcpRequest`, `MCP_TOOLS`
   * `plugin/src/settings.ts` -> `AgentManagerSettingTab`
+
+### [FEATURE: Safe-Note-Creation-And-Security-Hardening] | Aliases: create note, security helpers, host header check, path traversal guard
+> **1-Line Summary:** Safely creates new Markdown notes (`/note/create` and `obsidian_create_note`) with automatic parent directory creation, path traversal defense, and host header validation.
+* **User Intention (Non-Negotiable):** Enable external agents to create new notes while strictly preventing directory traversal outside the vault and DNS-rebinding via host header spoofing.
+* **Visual / UI Behavior:** Live status bar element displays active port and pinned item count; command palette commands allow hotkey-based pinning.
+* **Code Anchors (Grep Targets):**
+  * `plugin/src/editor.ts` -> `createNote`
+  * `plugin/src/security.ts` -> `constantTimeEquals`, `isAllowedHost`, `normalizeSafeVaultPath`
+  * `plugin/src/main.ts` -> `statusBarEl`, `addCommand`
 
 ### [FEATURE: Pinned-Inbox-And-Context-Menus] | Aliases: right click menu, send to agent, pin attachment, inbox
 > **1-Line Summary:** Right-click context menus in the editor and file explorer to explicitly push selected text, notes, or attachments into a 25-item ring buffer inbox.

@@ -7,6 +7,18 @@ const MAX_INBOX_ITEMS = 25;
 
 export class PinnedInbox {
   private items: PinnedContextItem[] = [];
+  private listeners: Array<(count: number) => void> = [];
+
+  onChange(listener: (count: number) => void): () => void {
+    this.listeners.push(listener);
+    return () => {
+      this.listeners = this.listeners.filter((l) => l !== listener);
+    };
+  }
+
+  private notify() {
+    for (const l of this.listeners) l(this.items.length);
+  }
 
   push(item: Omit<PinnedContextItem, "id" | "createdAt">): PinnedContextItem {
     const entry: PinnedContextItem = {
@@ -18,6 +30,7 @@ export class PinnedInbox {
     if (this.items.length > MAX_INBOX_ITEMS) {
       this.items.length = MAX_INBOX_ITEMS;
     }
+    this.notify();
     return entry;
   }
 
@@ -25,8 +38,13 @@ export class PinnedInbox {
     return [...this.items];
   }
 
+  size(): number {
+    return this.items.length;
+  }
+
   clear(): void {
     this.items = [];
+    this.notify();
   }
 }
 

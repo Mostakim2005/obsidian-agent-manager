@@ -84,3 +84,49 @@ flowchart TD
   * `plugin/src/menus.ts` -> `attachFileMenu`, `PinnedInbox`
   * `scripts/deeptutor_sync.py` -> `convert_epub_to_markdown`, `ingest_into_deeptutor`
   * `scripts/deeptutor_setup.json` -> `embedding`
+
+---
+
+### [VISUAL: Safe-Note-Creation-And-Path-Validation-Flow] | Aliases: create note flow, path validation, traversal check
+> **1-Line Summary:** How note creation requests are validated against path traversal before safely creating folders and files in the vault.
+
+* **Plain-English Walkthrough:** When an agent invokes `/note/create` or `obsidian_create_note`, the target path passes through `normalizeSafeVaultPath()`. If it contains `..` or leading slashes, the request fails with a security error. If valid, parent folders are automatically verified or created, and the note is safely written without overwriting existing files unless explicitly flagged.
+
+```mermaid
+flowchart TD
+    %% Color Definitions (Obsidian & GitHub compatible)
+    classDef startNode fill:#1d4ed8,stroke:#1e3a8a,color:#ffffff
+    classDef processNode fill:#0f766e,stroke:#115e59,color:#ffffff
+    classDef outputNode fill:#15803d,stroke:#14532d,color:#ffffff
+    classDef trapNode fill:#b91c1c,stroke:#7f1d1d,color:#ffffff
+
+    Start([Agent calls /note/create or obsidian_create_note]):::startNode --> HostCheck{Host Header Allowed?}:::processNode
+    HostCheck -->|No| BlockHost[Return 403 Invalid Host - Rebinding Guard]:::trapNode
+    HostCheck -->|Yes| PathCheck{normalizeSafeVaultPath valid?}:::processNode
+
+    PathCheck -->|Contains '..' or invalid syntax| BlockPath[Throw Error: Invalid Vault Path]:::trapNode
+    PathCheck -->|Valid| ExistsCheck{File already exists?}:::processNode
+
+    ExistsCheck -->|Yes & overwrite=false| Conflict[Error: Note already exists]:::trapNode
+    ExistsCheck -->|Yes & overwrite=true| Modify[Overwrite existing file via modify]:::processNode
+    ExistsCheck -->|No| FolderCheck{Parent folder exists?}:::processNode
+
+    FolderCheck -->|No| CreateFolder[Create parent folder structure]:::processNode
+    FolderCheck -->|Yes| CreateFile[Create note via app.vault.create]:::processNode
+    CreateFolder --> CreateFile
+
+    Modify --> Success([Return JSON: ok: true, vaultPath]):::outputNode
+    CreateFile --> Success
+
+    subgraph Legend["Legend (Color Guide)"]
+        L1([Blue = Request Entry]):::startNode
+        L2[Teal = Validation & File System Logic]:::processNode
+        L3([Green = Note Created / Updated Successfully]):::outputNode
+        L4[Red = Security Rejection / Error Path]:::trapNode
+    end
+```
+
+* **Code Anchors (Grep Targets):**
+  * `plugin/src/security.ts` -> `normalizeSafeVaultPath`, `isAllowedHost`
+  * `plugin/src/editor.ts` -> `createNote`
+  * `plugin/src/server.ts` -> `handleRequest`

@@ -1,5 +1,6 @@
-import { Notice, Plugin } from "obsidian";
+import { MarkdownView, Notice, Plugin } from "obsidian";
 import * as crypto from "node:crypto";
+import { getActiveHeading, toDiskPath } from "./context";
 import { attachEditorMenu, attachFileMenu, PinnedInbox } from "./menus";
 import { BridgeServer } from "./server";
 import { AgentManagerSettingTab } from "./settings";
@@ -9,6 +10,7 @@ export default class AgentManagerPlugin extends Plugin {
   settings: BridgeSettings = { ...DEFAULT_SETTINGS };
   inbox = new PinnedInbox();
   private server: BridgeServer | null = null;
+  private statusBarEl: HTMLElement | null = null;
 
   async onload() {
     await this.loadSettings();
@@ -18,6 +20,48 @@ export default class AgentManagerPlugin extends Plugin {
     }
 
     this.addSettingTab(new AgentManagerSettingTab(this.app, this));
+
+    this.statusBarEl = this.addStatusBarItem();
+    const updateStatus = (count: number) => {
+      if (this.statusBarEl) {
+        this.statusBarEl.setText(`Agent :${this.settings.port} (${count} pinned)`);
+      }
+    };
+    updateStatus(this.inbox.size());
+    this.register(this.inbox.onChange(updateStatus));
+
+    this.addCommand({
+      id: "pin-active-selection-or-note",
+      name: "Pin active selection or note to Agent Manager inbox",
+      callback: () => {
+        const file = this.app.workspace.getActiveFile();
+        if (!file) {
+          new Notice("No active note to pin");
+          return;
+        }
+        const mdView = this.app.workspace.getActiveViewOfType(MarkdownView);
+        const selection = mdView?.editor.getSelection() ?? "";
+        const cursor = mdView?.editor.getCursor();
+        this.inbox.push({
+          kind: selection ? "selection" : "note",
+          vaultPath: file.path,
+          diskPath: toDiskPath(this.app, file.path),
+          selection: selection || undefined,
+          cursorLine: cursor ? cursor.line + 1 : undefined,
+          heading: cursor ? getActiveHeading(this.app, file, cursor.line) : null,
+        });
+        new Notice(selection ? "Selection pinned to Agent Manager inbox" : `Pinned "${file.basename}"`);
+      },
+    });
+
+    this.addCommand({
+      id: "clear-agent-manager-inbox",
+      name: "Clear Agent Manager pinned inbox",
+      callback: () => {
+        this.inbox.clear();
+        new Notice("Cleared Agent Manager inbox");
+      },
+    });
 
     this.registerEvent(
       this.app.workspace.on("editor-menu", (menu, editor, view) => {

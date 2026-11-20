@@ -1,6 +1,6 @@
 import { App } from "obsidian";
 import { getWorkspaceSnapshot } from "./context";
-import { applyEdit, openNoteAtLine, readNoteSlice } from "./editor";
+import { applyEdit, createNote, openNoteAtLine, readNoteSlice } from "./editor";
 import { getActiveAttachments, getNoteGraph, searchVaultMetadata } from "./graph";
 import { PinnedInbox } from "./menus";
 import { EditRequest } from "./types";
@@ -48,6 +48,19 @@ const MCP_TOOLS = [
         endLine: { type: "number" },
         heading: { type: "string" },
         frontmatterPatch: { type: "object" },
+      },
+    },
+  },
+  {
+    name: "obsidian_create_note",
+    description: "Create a new Markdown note in the vault (optionally creating parent folders).",
+    inputSchema: {
+      type: "object",
+      required: ["path", "content"],
+      properties: {
+        path: { type: "string" },
+        content: { type: "string" },
+        overwrite: { type: "boolean" },
       },
     },
   },
@@ -125,6 +138,9 @@ export async function handleMcpRequest(app: App, inbox: PinnedInbox, rpc: Record
           break;
         case "obsidian_edit_note":
           data = await applyEdit(app, args as unknown as EditRequest);
+          break;
+        case "obsidian_create_note":
+          data = await createNote(app, String(args.path ?? ""), String(args.content ?? ""), args.overwrite === true);
           break;
         case "obsidian_open_note":
           data = await openNoteAtLine(app, String(args.path), args.line as number | undefined);

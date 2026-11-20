@@ -1,4 +1,5 @@
 import { App, MarkdownView, TFile } from "obsidian";
+import { normalizeSafeVaultPath } from "./security";
 import { EditRequest } from "./types";
 
 function findHeadingRange(app: App, file: TFile, headingQuery: string): { start: number; end: number } | null {
@@ -31,7 +32,12 @@ export async function readNoteSlice(
     : app.workspace.getActiveFile();
   if (!(file instanceof TFile)) throw new Error("Note not found");
 
-  const fullText = await app.vault.read(file);
+  // Prefer live unsaved editor buffer when reading the active note
+  const activeView = app.workspace.getActiveViewOfType(MarkdownView);
+  const fullText =
+    activeView && activeView.file?.path === file.path
+      ? activeView.editor.getValue()
+      : await app.vault.read(file);
   const lines = fullText.split(/\r?\n/);
 
   if (heading) {
@@ -50,6 +56,7 @@ export async function readNoteSlice(
   if (typeof startLine === "number") {
     const s = Math.max(1, startLine);
     const e = Math.min(lines.length, endLine ?? lines.length);
+    if (e < s) throw new Error("endLine must be >= startLine");
     return {
       vaultPath: file.path,
       startLine: s,
@@ -66,6 +73,23 @@ export async function readNoteSlice(
     totalLines: lines.length,
     content: fullText,
   };
+}
+
+export async function createNote(app: App, rawPath: string, content: string, overwrite = false) {
+  const safePath = normalizeSafeVaultPath(rawPath);
+  const finalPath = safePath.endsWith(".md") ? safePath : `${safePath}.md`;
+  const existing = app.vault.getAbstractFileByPath(finalPath);
+  if (existing instanceof TFile) {
+    if (!overwrite) throw new Error(`Note already exists: ${finalPath}`);
+    await app.vault.modify(existing, content);
+    return { ok: true, vaultPath: existing.path, created: false, overwritten: true };
+  }
+  const folder = finalPath.includes("/") ? finalPath.slice(0, finalPath.lastIndexOf("/")) : "";
+  if (folder && !app.vault.getAbstractFileByPath(folder)) {
+    await app.vault.createFolder(folder);
+  }
+  const created = await app.vault.create(finalPath, content);
+  return { ok: true, vaultPath: created.path, created: true, overwritten: false };
 }
 
 export async function applyEdit(app: App, req: EditRequest) {
@@ -96,6 +120,9 @@ export async function applyEdit(app: App, req: EditRequest) {
     if (typeof req.startLine !== "number" || typeof req.endLine !== "number") {
       throw new Error("startLine and endLine (1-indexed) are required");
     }
+    if (req.startLine < 1 || req.endLine < req.startLine) {
+      throw new Error("Invalid line range: require 1 <= startLine <= endLine");
+    }
     if (isEditingActive) {
       const editor = activeView.editor;
       const from = { line: Math.max(0, req.startLine - 1), ch: 0 };
@@ -106,7 +133,9 @@ export async function applyEdit(app: App, req: EditRequest) {
     }
     await app.vault.process(targetFile, (data) => {
       const lines = data.split(/\r?\n/);
-      lines.splice(req.startLine! - 1, req.endLine! - req.startLine! + 1, ...content.split(/\r?\n/));
+      const clampedStart = Math.min(req.startLine! - 1, lines.length);
+      const deleteCount = Math.max(0, Math.min(req.endLine!, lines.length) - clampedStart);
+      lines.splice(clampedStart, deleteCount, ...content.split(/\r?\n/));
       return lines.join("\n");
     });
     return { ok: true, vaultPath: targetFile.path, mode: req.mode, undoSafe: false };

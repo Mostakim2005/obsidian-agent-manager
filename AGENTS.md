@@ -29,3 +29,4 @@
 * **TRAP 1:** Never bind the HTTP server to `0.0.0.0` or allow cross-origin browser requests — see `docs/DECISIONS_AND_TRAPS.md` -> `[TRAP: Loopback-Binding-And-Origin-Rejection]`.
 * **TRAP 2:** Do not run concurrent CLI chat turns while DeepTutor backend server is active — see `docs/DECISIONS_AND_TRAPS.md` -> `[TRAP: DeepTutor-Single-Turn-Owner]`.
 * **TRAP 3:** Always preserve editor undo history by using active `MarkdownView.editor` methods over disk writes when editing the active note — see `docs/DECISIONS_AND_TRAPS.md` -> `[TRAP: Undo-Stack-Preservation]`.
+* **TRAP 4:** Always sanitize incoming paths via `normalizeSafeVaultPath` before any file or folder creation — see `docs/DECISIONS_AND_TRAPS.md` -> `[TRAP: Vault-Path-Traversal-Prevention]`.

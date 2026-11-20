@@ -79,3 +79,13 @@ flowchart LR
 * **Why This Trap Exists (Plain English):** Obsidian tracks undo history in memory via CodeMirror transactions. Overwriting the file on disk bypasses CodeMirror, wiping out the user's undo/redo history (`Ctrl+Z`) and potentially creating race conditions with Obsidian's auto-save buffer.
 * **Protected Code Anchors (Grep Targets):**
   * `plugin/src/editor.ts` -> `replaceSelectionUndoSafe`, `replaceLinesUndoSafe`
+
+---
+
+### [TRAP: Vault-Path-Traversal-Prevention] | Aliases: path traversal, dot dot, security, normalizeSafeVaultPath
+> **1-Line Summary:** All note paths received from REST endpoints or MCP arguments must pass through `normalizeSafeVaultPath` before touch.
+* **Strict Rule:** **NEVER** accept unvalidated file paths containing `..` or leading slashes when creating or writing notes.
+* **Why This Trap Exists (Plain English):** Unchecked path parameters allow an agent or rogue client to traverse out of the vault boundary (e.g., `../../Windows/System32` or `../../.ssh`), risking arbitrary file overwrites on the host OS.
+* **Protected Code Anchors (Grep Targets):**
+  * `plugin/src/security.ts` -> `normalizeSafeVaultPath`
+  * `plugin/src/editor.ts` -> `createNote`

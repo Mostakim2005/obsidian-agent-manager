@@ -1,22 +1,15 @@
 import { App } from "obsidian";
 import * as http from "node:http";
-import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { getVaultBasePath, getWorkspaceSnapshot } from "./context";
-import { applyEdit, openNoteAtLine, readNoteSlice } from "./editor";
+import { applyEdit, createNote, openNoteAtLine, readNoteSlice } from "./editor";
 import { getActiveAttachments, getNoteGraph, searchVaultMetadata } from "./graph";
 import { handleMcpRequest } from "./mcp";
 import { PinnedInbox } from "./menus";
+import { constantTimeEquals, isAllowedHost } from "./security";
 import { BridgeSettings, EditRequest } from "./types";
-
-function constantTimeEquals(a: string, b: string): boolean {
-  const bufA = Buffer.from(a);
-  const bufB = Buffer.from(b);
-  if (bufA.length !== bufB.length) return false;
-  return crypto.timingSafeEqual(bufA, bufB);
-}
 
 function readJsonBody(req: http.IncomingMessage): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
@@ -96,18 +89,22 @@ export class BridgeServer {
   }
 
   private async handleRequest(req: http.IncomingMessage, res: http.ServerResponse) {
+    const { port, apiToken } = this.getSettings();
     if (req.headers.origin) {
       return sendJson(res, 403, { error: "Browser Origin headers are rejected for local security" });
     }
+    if (!isAllowedHost(req.headers.host, port)) {
+      return sendJson(res, 403, { error: "Invalid Host header (DNS rebinding protection)" });
+    }
 
-    const url = new URL(req.url ?? "/", `http://127.0.0.1:${this.getSettings().port}`);
+    const url = new URL(req.url ?? "/", `http://127.0.0.1:${port}`);
     if (req.method === "GET" && url.pathname === "/health") {
       return sendJson(res, 200, { ok: true, vaultName: this.app.vault.getName(), version: "0.1.0" });
     }
 
     const auth = req.headers.authorization ?? "";
-    const expected = `Bearer ${this.getSettings().apiToken}`;
-    if (!this.getSettings().apiToken || !constantTimeEquals(auth, expected)) {
+    const expected = `Bearer ${apiToken}`;
+    if (!apiToken || !constantTimeEquals(auth, expected)) {
       return sendJson(res, 401, { error: "Unauthorized" });
     }
 
@@ -129,6 +126,14 @@ export class BridgeServer {
         const startLine = url.searchParams.get("startLine") ? Number(url.searchParams.get("startLine")) : undefined;
         const endLine = url.searchParams.get("endLine") ? Number(url.searchParams.get("endLine")) : undefined;
         return sendJson(res, 200, await readNoteSlice(this.app, p, heading, startLine, endLine));
+      }
+      if (req.method === "POST" && url.pathname === "/note/create") {
+        const body = await readJsonBody(req);
+        return sendJson(
+          res,
+          200,
+          await createNote(this.app, String(body.path ?? ""), String(body.content ?? ""), body.overwrite === true)
+        );
       }
       if (req.method === "GET" && url.pathname === "/search") {
         const q = url.searchParams.get("q") ?? "";

@@ -26,6 +26,10 @@ jobs:
         working-directory: ./plugin
         run: npm install
 
+      - name: Run unit tests
+        working-directory: ./plugin
+        run: npm run test
+
       - name: Type check & Build bundle
         working-directory: ./plugin
         run: npm run build
