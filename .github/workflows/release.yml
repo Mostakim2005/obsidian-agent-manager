@@ -1,0 +1,41 @@
+name: Release Plugin
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build & Attach Release Assets
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+          cache-dependency-path: plugin/package.json
+
+      - name: Install dependencies
+        working-directory: ./plugin
+        run: npm install
+
+      - name: Build production bundle
+        working-directory: ./plugin
+        run: npm run build
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            plugin/main.js
+            plugin/manifest.json
+          generate_release_notes: true

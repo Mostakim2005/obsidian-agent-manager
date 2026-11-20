@@ -1,0 +1,17 @@
+{
+  "llm": {
+    "provider": "openai",
+    "model": "YOUR_LLM_MODEL",
+    "api_key_env": "DEEPTUTOR_SETUP_LLM_KEY"
+  },
+  "embedding": {
+    "provider": "ollama",
+    "model": "embeddinggemma-2:270m",
+    "base_url": "http://127.0.0.1:11434/v1/embeddings",
+    "dimension": 768
+  },
+  "system": {
+    "backend_port": 8001,
+    "frontend_port": 3782
+  }
+}

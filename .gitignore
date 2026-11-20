@@ -1,0 +1,10 @@
+node_modules/
+plugin/main.js
+plugin/data.json
+scripts/.venv/
+__pycache__/
+*.pyc
+.env
+.deploy-target
+.obsidian-bridge-staging/
+.obsidian-agent-manager-staging/

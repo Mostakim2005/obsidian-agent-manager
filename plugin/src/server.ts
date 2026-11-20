@@ -1,0 +1,161 @@
+import { App } from "obsidian";
+import * as http from "node:http";
+import * as crypto from "node:crypto";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { getVaultBasePath, getWorkspaceSnapshot } from "./context";
+import { applyEdit, openNoteAtLine, readNoteSlice } from "./editor";
+import { getActiveAttachments, getNoteGraph, searchVaultMetadata } from "./graph";
+import { handleMcpRequest } from "./mcp";
+import { PinnedInbox } from "./menus";
+import { BridgeSettings, EditRequest } from "./types";
+
+function constantTimeEquals(a: string, b: string): boolean {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
+function readJsonBody(req: http.IncomingMessage): Promise<Record<string, unknown>> {
+  return new Promise((resolve, reject) => {
+    let raw = "";
+    req.on("data", (chunk) => {
+      raw += chunk;
+      if (raw.length > 5 * 1024 * 1024) reject(new Error("Payload too large"));
+    });
+    req.on("end", () => {
+      try {
+        resolve(raw ? (JSON.parse(raw) as Record<string, unknown>) : {});
+      } catch {
+        reject(new Error("Invalid JSON body"));
+      }
+    });
+    req.on("error", reject);
+  });
+}
+
+function sendJson(res: http.ServerResponse, status: number, payload: unknown) {
+  res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
+  res.end(JSON.stringify(payload));
+}
+
+export class BridgeServer {
+  private server: http.Server | null = null;
+  private discoveryFile = path.join(os.homedir(), ".obsidian-agent-manager", "vaults.json");
+
+  constructor(private app: App, private getSettings: () => BridgeSettings, private inbox: PinnedInbox) {}
+
+  start(): Promise<void> {
+    const { port } = this.getSettings();
+    return new Promise((resolve, reject) => {
+      this.server = http.createServer((req, res) => void this.handleRequest(req, res));
+      this.server.on("error", reject);
+      this.server.listen(port, "127.0.0.1", () => {
+        this.updateDiscovery(true);
+        resolve();
+      });
+    });
+  }
+
+  stop(): Promise<void> {
+    this.updateDiscovery(false);
+    return new Promise((resolve) => {
+      if (!this.server) return resolve();
+      this.server.close(() => {
+        this.server = null;
+        resolve();
+      });
+    });
+  }
+
+  private updateDiscovery(register: boolean) {
+    try {
+      const dir = path.dirname(this.discoveryFile);
+      fs.mkdirSync(dir, { recursive: true });
+      let data: Record<string, unknown> = {};
+      if (fs.existsSync(this.discoveryFile)) {
+        data = JSON.parse(fs.readFileSync(this.discoveryFile, "utf8")) as Record<string, unknown>;
+      }
+      const vaultPath = getVaultBasePath(this.app) || this.app.vault.getName();
+      if (register) {
+        data[vaultPath] = {
+          vaultName: this.app.vault.getName(),
+          port: this.getSettings().port,
+          url: `http://127.0.0.1:${this.getSettings().port}`,
+          mcpUrl: `http://127.0.0.1:${this.getSettings().port}/mcp`,
+        };
+      } else {
+        delete data[vaultPath];
+      }
+      fs.writeFileSync(this.discoveryFile, JSON.stringify(data, null, 2), "utf8");
+    } catch {
+      // Non-fatal discovery write failure
+    }
+  }
+
+  private async handleRequest(req: http.IncomingMessage, res: http.ServerResponse) {
+    if (req.headers.origin) {
+      return sendJson(res, 403, { error: "Browser Origin headers are rejected for local security" });
+    }
+
+    const url = new URL(req.url ?? "/", `http://127.0.0.1:${this.getSettings().port}`);
+    if (req.method === "GET" && url.pathname === "/health") {
+      return sendJson(res, 200, { ok: true, vaultName: this.app.vault.getName(), version: "0.1.0" });
+    }
+
+    const auth = req.headers.authorization ?? "";
+    const expected = `Bearer ${this.getSettings().apiToken}`;
+    if (!this.getSettings().apiToken || !constantTimeEquals(auth, expected)) {
+      return sendJson(res, 401, { error: "Unauthorized" });
+    }
+
+    try {
+      if (req.method === "GET" && url.pathname === "/context") {
+        return sendJson(res, 200, getWorkspaceSnapshot(this.app));
+      }
+      if (req.method === "GET" && url.pathname === "/context/attachments") {
+        return sendJson(res, 200, getActiveAttachments(this.app));
+      }
+      if (req.method === "GET" && url.pathname === "/note/graph") {
+        const p = url.searchParams.get("path") ?? this.app.workspace.getActiveFile()?.path ?? "";
+        const graph = getNoteGraph(this.app, p);
+        return graph ? sendJson(res, 200, graph) : sendJson(res, 404, { error: "Note not found" });
+      }
+      if (req.method === "GET" && url.pathname === "/note/read") {
+        const p = url.searchParams.get("path") ?? undefined;
+        const heading = url.searchParams.get("heading") ?? undefined;
+        const startLine = url.searchParams.get("startLine") ? Number(url.searchParams.get("startLine")) : undefined;
+        const endLine = url.searchParams.get("endLine") ? Number(url.searchParams.get("endLine")) : undefined;
+        return sendJson(res, 200, await readNoteSlice(this.app, p, heading, startLine, endLine));
+      }
+      if (req.method === "GET" && url.pathname === "/search") {
+        const q = url.searchParams.get("q") ?? "";
+        return sendJson(res, 200, { results: searchVaultMetadata(this.app, q) });
+      }
+      if (req.method === "GET" && url.pathname === "/inbox") {
+        return sendJson(res, 200, { items: this.inbox.list() });
+      }
+      if (req.method === "POST" && url.pathname === "/inbox/clear") {
+        this.inbox.clear();
+        return sendJson(res, 200, { ok: true });
+      }
+      if (req.method === "POST" && url.pathname === "/edit") {
+        const body = await readJsonBody(req);
+        return sendJson(res, 200, await applyEdit(this.app, body as unknown as EditRequest));
+      }
+      if (req.method === "POST" && url.pathname === "/open") {
+        const body = await readJsonBody(req);
+        return sendJson(res, 200, await openNoteAtLine(this.app, String(body.path ?? ""), body.line as number | undefined));
+      }
+      if (req.method === "POST" && url.pathname === "/mcp") {
+        const body = await readJsonBody(req);
+        return sendJson(res, 200, await handleMcpRequest(this.app, this.inbox, body));
+      }
+      return sendJson(res, 404, { error: "Not found" });
+    } catch (err) {
+      return sendJson(res, 400, { error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+}
