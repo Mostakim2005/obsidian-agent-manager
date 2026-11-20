@@ -11,21 +11,40 @@ import { PinnedInbox } from "./menus";
 import { constantTimeEquals, isAllowedHost } from "./security";
 import { BridgeSettings, EditRequest } from "./types";
 
+const MAX_BODY_BYTES = 5 * 1024 * 1024;
+
 function readJsonBody(req: http.IncomingMessage): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
-    let raw = "";
-    req.on("data", (chunk) => {
-      raw += chunk;
-      if (raw.length > 5 * 1024 * 1024) reject(new Error("Payload too large"));
+    const chunks: Buffer[] = [];
+    let totalBytes = 0;
+    let settled = false;
+    const fail = (err: Error) => {
+      if (settled) return;
+      settled = true;
+      req.destroy();
+      reject(err);
+    };
+    req.on("data", (chunk: Buffer | string) => {
+      if (settled) return;
+      const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      totalBytes += buf.byteLength;
+      if (totalBytes > MAX_BODY_BYTES) {
+        fail(new Error("Payload too large"));
+        return;
+      }
+      chunks.push(buf);
     });
     req.on("end", () => {
+      if (settled) return;
+      settled = true;
       try {
+        const raw = Buffer.concat(chunks).toString("utf8");
         resolve(raw ? (JSON.parse(raw) as Record<string, unknown>) : {});
       } catch {
         reject(new Error("Invalid JSON body"));
       }
     });
-    req.on("error", reject);
+    req.on("error", (err) => fail(err instanceof Error ? err : new Error(String(err))));
   });
 }
 
@@ -56,10 +75,12 @@ export class BridgeServer {
     this.updateDiscovery(false);
     return new Promise((resolve) => {
       if (!this.server) return resolve();
-      this.server.close(() => {
-        this.server = null;
-        resolve();
-      });
+      const srv = this.server;
+      this.server = null;
+      srv.close(() => resolve());
+      if (typeof srv.closeAllConnections === "function") {
+        srv.closeAllConnections();
+      }
     });
   }
 
@@ -82,7 +103,9 @@ export class BridgeServer {
       } else {
         delete data[vaultPath];
       }
-      fs.writeFileSync(this.discoveryFile, JSON.stringify(data, null, 2), "utf8");
+      const tmpFile = `${this.discoveryFile}.${process.pid}.tmp`;
+      fs.writeFileSync(tmpFile, JSON.stringify(data, null, 2), "utf8");
+      fs.renameSync(tmpFile, this.discoveryFile);
     } catch {
       // Non-fatal discovery write failure
     }
@@ -156,7 +179,13 @@ export class BridgeServer {
       }
       if (req.method === "POST" && url.pathname === "/mcp") {
         const body = await readJsonBody(req);
-        return sendJson(res, 200, await handleMcpRequest(this.app, this.inbox, body));
+        const result = await handleMcpRequest(this.app, this.inbox, body);
+        if (result === null) {
+          res.writeHead(202);
+          res.end();
+          return;
+        }
+        return sendJson(res, 200, result);
       }
       return sendJson(res, 404, { error: "Not found" });
     } catch (err) {

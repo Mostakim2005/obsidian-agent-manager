@@ -101,7 +101,11 @@ export async function handleMcpRequest(app: App, inbox: PinnedInbox, rpc: Record
     };
   }
 
-  if (method === "notifications/initialized") {
+  if (method === "notifications/initialized" || method.startsWith("notifications/")) {
+    return null;
+  }
+
+  if (method === "ping") {
     return { jsonrpc: "2.0", id, result: {} };
   }
 
@@ -143,7 +147,10 @@ export async function handleMcpRequest(app: App, inbox: PinnedInbox, rpc: Record
           data = await createNote(app, String(args.path ?? ""), String(args.content ?? ""), args.overwrite === true);
           break;
         case "obsidian_open_note":
-          data = await openNoteAtLine(app, String(args.path), args.line as number | undefined);
+          if (typeof args.path !== "string" || !args.path.trim()) {
+            throw new Error("path is required");
+          }
+          data = await openNoteAtLine(app, args.path, args.line as number | undefined);
           break;
         case "obsidian_search_vault":
           data = searchVaultMetadata(app, String(args.query ?? ""), (args.limit as number | undefined) ?? 25);

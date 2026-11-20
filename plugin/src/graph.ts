@@ -1,8 +1,10 @@
 import { App, TFile } from "obsidian";
 import { toDiskPath } from "./context";
+import { normalizeSafeVaultPath } from "./security";
 
 export function getNoteGraph(app: App, vaultPath: string) {
-  const file = app.vault.getAbstractFileByPath(vaultPath);
+  const safePath = normalizeSafeVaultPath(vaultPath);
+  const file = app.vault.getAbstractFileByPath(safePath);
   if (!(file instanceof TFile)) return null;
 
   const cache = app.metadataCache.getFileCache(file);

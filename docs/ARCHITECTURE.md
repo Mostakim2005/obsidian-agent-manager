@@ -28,7 +28,7 @@ flowchart TB
 
     subgraph Legend["Legend (Color Guide)"]
         L1([Blue = Starting User Action / External AI Agent]):::startNode
-        L2[Teal = Core Processing / Obsidian Plugin]:-::processNode
+        L2[Teal = Core Processing / Obsidian Plugin]:::processNode
         L3[(Green = Local Vault Files / Stored Notes)]:::outputNode
         L4[Purple = Shared Local Service: Ollama & DeepTutor]:::serviceNode
         L5[Red = Security Guard: Rejection & Fallback]:::trapNode

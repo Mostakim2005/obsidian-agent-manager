@@ -81,6 +81,7 @@ export default class AgentManagerPlugin extends Plugin {
     try {
       await this.server.start();
     } catch (err) {
+      this.statusBarEl?.setText(`Agent :${this.settings.port} (offline)`);
       new Notice(`Obsidian Agent Manager failed to start on port ${this.settings.port}: ${String(err)}`);
     }
   }

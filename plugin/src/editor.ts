@@ -27,8 +27,9 @@ export async function readNoteSlice(
   startLine?: number,
   endLine?: number
 ) {
-  const file = vaultPath
-    ? app.vault.getAbstractFileByPath(vaultPath)
+  const safePath = vaultPath ? normalizeSafeVaultPath(vaultPath) : undefined;
+  const file = safePath
+    ? app.vault.getAbstractFileByPath(safePath)
     : app.workspace.getActiveFile();
   if (!(file instanceof TFile)) throw new Error("Note not found");
 
@@ -81,8 +82,15 @@ export async function createNote(app: App, rawPath: string, content: string, ove
   const existing = app.vault.getAbstractFileByPath(finalPath);
   if (existing instanceof TFile) {
     if (!overwrite) throw new Error(`Note already exists: ${finalPath}`);
+    const activeView = app.workspace.getActiveViewOfType(MarkdownView);
+    if (activeView && activeView.file?.path === existing.path) {
+      const editor = activeView.editor;
+      const lastLine = Math.max(0, editor.lineCount() - 1);
+      editor.replaceRange(content, { line: 0, ch: 0 }, { line: lastLine, ch: editor.getLine(lastLine).length });
+      return { ok: true, vaultPath: existing.path, created: false, overwritten: true, undoSafe: true };
+    }
     await app.vault.modify(existing, content);
-    return { ok: true, vaultPath: existing.path, created: false, overwritten: true };
+    return { ok: true, vaultPath: existing.path, created: false, overwritten: true, undoSafe: false };
   }
   const folder = finalPath.includes("/") ? finalPath.slice(0, finalPath.lastIndexOf("/")) : "";
   if (folder && !app.vault.getAbstractFileByPath(folder)) {
@@ -93,8 +101,9 @@ export async function createNote(app: App, rawPath: string, content: string, ove
 }
 
 export async function applyEdit(app: App, req: EditRequest) {
-  const targetFile = req.path
-    ? app.vault.getAbstractFileByPath(req.path)
+  const safePath = req.path ? normalizeSafeVaultPath(req.path) : undefined;
+  const targetFile = safePath
+    ? app.vault.getAbstractFileByPath(safePath)
     : app.workspace.getActiveFile();
   if (!(targetFile instanceof TFile)) throw new Error("Target note not found");
 
@@ -125,8 +134,10 @@ export async function applyEdit(app: App, req: EditRequest) {
     }
     if (isEditingActive) {
       const editor = activeView.editor;
-      const from = { line: Math.max(0, req.startLine - 1), ch: 0 };
-      const endIdx = Math.min(editor.lineCount() - 1, req.endLine - 1);
+      const maxIdx = Math.max(0, editor.lineCount() - 1);
+      const startIdx = Math.min(maxIdx, Math.max(0, req.startLine - 1));
+      const endIdx = Math.min(maxIdx, Math.max(startIdx, req.endLine - 1));
+      const from = { line: startIdx, ch: 0 };
       const to = { line: endIdx, ch: editor.getLine(endIdx).length };
       editor.replaceRange(content, from, to);
       return { ok: true, vaultPath: targetFile.path, mode: req.mode, undoSafe: true };
@@ -147,8 +158,10 @@ export async function applyEdit(app: App, req: EditRequest) {
     if (!range) throw new Error(`Heading not found: ${req.heading}`);
     if (isEditingActive) {
       const editor = activeView.editor;
-      const lastLine = range.end === -1 ? editor.lineCount() - 1 : range.end;
-      editor.replaceRange(content, { line: range.start, ch: 0 }, { line: lastLine, ch: editor.getLine(lastLine).length });
+      const maxIdx = Math.max(0, editor.lineCount() - 1);
+      const startIdx = Math.min(maxIdx, Math.max(0, range.start));
+      const lastLine = range.end === -1 ? maxIdx : Math.min(maxIdx, Math.max(startIdx, range.end));
+      editor.replaceRange(content, { line: startIdx, ch: 0 }, { line: lastLine, ch: editor.getLine(lastLine).length });
       return { ok: true, vaultPath: targetFile.path, mode: req.mode, undoSafe: true };
     }
     await app.vault.process(targetFile, (data) => {
@@ -175,7 +188,8 @@ export async function applyEdit(app: App, req: EditRequest) {
 }
 
 export async function openNoteAtLine(app: App, vaultPath: string, line?: number) {
-  const file = app.vault.getAbstractFileByPath(vaultPath);
+  const safePath = normalizeSafeVaultPath(vaultPath);
+  const file = app.vault.getAbstractFileByPath(safePath);
   if (!(file instanceof TFile)) throw new Error("Note not found");
   const leaf = app.workspace.getLeaf(false);
   await leaf.openFile(file);

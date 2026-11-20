@@ -2,6 +2,8 @@
 """Sync pinned Obsidian notes, links, PDFs, and converted EPUBs into a DeepTutor KB."""
 
 import argparse
+import hashlib
+import json
 import os
 import subprocess
 import sys
@@ -14,16 +16,38 @@ from ebooklib import ITEM_DOCUMENT, epub
 
 def convert_epub_to_markdown(epub_path: Path, staging_dir: Path) -> Path:
     staging_dir.mkdir(parents=True, exist_ok=True)
-    out_md = staging_dir / f"{epub_path.stem}.md"
+    short_hash = hashlib.sha256(str(epub_path.resolve()).encode("utf-8")).hexdigest()[:8]
+    out_md = staging_dir / f"{epub_path.stem}-{short_hash}.md"
     book = epub.read_epub(str(epub_path))
     sections: list[str] = [f"# {epub_path.stem}\n"]
-    for idx, item in enumerate(book.get_items_of_type(ITEM_DOCUMENT), start=1):
+    ordered_items = []
+    for item_id, _linear in getattr(book, "spine", []):
+        item = book.get_item_with_id(item_id)
+        if item is not None and item.get_type() == ITEM_DOCUMENT:
+            ordered_items.append(item)
+    if not ordered_items:
+        ordered_items = list(book.get_items_of_type(ITEM_DOCUMENT))
+    for idx, item in enumerate(ordered_items, start=1):
         soup = BeautifulSoup(item.get_content(), "html.parser")
         text = soup.get_text(separator="\n", strip=True)
         if text:
             sections.append(f"\n## Section {idx}\n\n{text}\n")
     out_md.write_text("\n".join(sections), encoding="utf-8")
     return out_md
+
+
+def discover_default_manager_url() -> str:
+    discovery = Path.home() / ".obsidian-agent-manager" / "vaults.json"
+    if discovery.exists():
+        try:
+            data = json.loads(discovery.read_text(encoding="utf-8"))
+            if isinstance(data, dict) and data:
+                first = next(iter(data.values()))
+                if isinstance(first, dict) and isinstance(first.get("url"), str):
+                    return first["url"]
+        except Exception:
+            pass
+    return "http://127.0.0.1:27125"
 
 
 def fetch_bridge_paths(bridge_url: str, token: str, from_inbox: bool, include_links: bool) -> list[Path]:
@@ -100,7 +124,7 @@ def search_deeptutor_kb(kb_name: str, query: str) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Push Obsidian Agent Manager context/inbox to DeepTutor KB.")
     parser.add_argument("--kb", required=True, help="Target DeepTutor knowledge base name")
-    parser.add_argument("--manager-url", "--bridge-url", dest="manager_url", default="http://127.0.0.1:27125", help="Obsidian Agent Manager URL")
+    parser.add_argument("--manager-url", "--bridge-url", dest="manager_url", default=discover_default_manager_url(), help="Obsidian Agent Manager URL")
     parser.add_argument("--token", default=os.environ.get("OBSIDIAN_AGENT_MANAGER_TOKEN") or os.environ.get("OBSIDIAN_BRIDGE_TOKEN", ""), help="Agent Manager Bearer token")
     parser.add_argument("--from-inbox", action="store_true", help="Sync pinned right-click inbox items")
     parser.add_argument("--include-links", action="store_true", help="Also ingest outgoing wikilinks of the active note")
