@@ -4,6 +4,8 @@ import { getActiveHeading, toDiskPath } from "./context";
 import { attachEditorMenu, attachFileMenu, PinnedInbox } from "./menus";
 import { BridgeServer } from "./server";
 import { AgentManagerSettingTab } from "./settings";
+import { BridgeInspectorModal } from "./ui/inspector-modal";
+import { ConfirmModal } from "./ui/confirm-modal";
 import { BridgeSettings, DEFAULT_SETTINGS } from "./types";
 
 export default class AgentManagerPlugin extends Plugin {
@@ -21,7 +23,23 @@ export default class AgentManagerPlugin extends Plugin {
 
     this.addSettingTab(new AgentManagerSettingTab(this.app, this));
 
+    const ribbonEl = this.addRibbonIcon("bot", "Obsidian Agent Manager: Bridge & Pinned Inbox", () => {
+      new BridgeInspectorModal(this.app, this).open();
+    });
+    ribbonEl.setAttribute("aria-label", "Open Obsidian Agent Manager Bridge Inspector");
+
     this.statusBarEl = this.addStatusBarItem();
+    this.statusBarEl.addClass("oam-status-pill");
+    this.statusBarEl.setAttribute("role", "button");
+    this.statusBarEl.setAttribute("tabindex", "0");
+    this.statusBarEl.setAttribute("aria-label", "Open Agent Manager Bridge Inspector");
+    this.statusBarEl.addEventListener("click", () => new BridgeInspectorModal(this.app, this).open());
+    this.statusBarEl.addEventListener("keydown", (evt: KeyboardEvent) => {
+      if (evt.key === "Enter" || evt.key === " ") {
+        evt.preventDefault();
+        new BridgeInspectorModal(this.app, this).open();
+      }
+    });
     const updateStatus = (count: number) => {
       if (this.statusBarEl) {
         this.statusBarEl.setText(`Agent :${this.settings.port} (${count} pinned)`);
@@ -55,11 +73,31 @@ export default class AgentManagerPlugin extends Plugin {
     });
 
     this.addCommand({
+      id: "open-agent-manager-inspector",
+      name: "Open Agent Manager Bridge Inspector",
+      callback: () => new BridgeInspectorModal(this.app, this).open(),
+    });
+
+    this.addCommand({
       id: "clear-agent-manager-inbox",
       name: "Clear Agent Manager pinned inbox",
       callback: () => {
-        this.inbox.clear();
-        new Notice("Cleared Agent Manager inbox");
+        const count = this.inbox.size();
+        if (count === 0) {
+          new Notice("Agent Manager inbox is already empty");
+          return;
+        }
+        new ConfirmModal(this.app, {
+          title: "Clear Agent Manager pinned inbox?",
+          message: `Remove all ${count} pinned item(s) from the Agent Manager inbox?`,
+          confirmLabel: "Clear inbox",
+          destructive: true,
+          cssPrefix: "oam",
+          onConfirm: () => {
+            this.inbox.clear();
+            new Notice("Cleared Agent Manager inbox");
+          },
+        }).open();
       },
     });
 

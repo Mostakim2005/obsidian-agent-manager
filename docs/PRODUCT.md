@@ -81,3 +81,9 @@
 > **1-Line Summary:** Optional visual modal in Obsidian to preview proposed agent edits as a side-by-side diff before accepting or rejecting.
 * **User Intention:** Allow human-in-the-loop inspection of multi-section edits for high-stakes research notes.
 * **Target Integration Point:** Connects to `plugin/src/editor.ts` controlled by a toggle in `plugin/src/settings.ts`.
+
+### [FEATURE: UI-UX-Parity-And-Accessibility] | Aliases: ribbon bot, inspector modal, confirm modal, status bar, styles
+> **1-Line Summary:** Introduces bot ribbon launcher, BridgeInspectorModal, ConfirmModal guardrail, live Status Bar monitor, and dedicated zero-hex plugin/styles.css.
+* **User Intention (Non-Negotiable):** Provide intuitive GUI inspector for external agent localhost bridges, safe confirmation before connection teardown, and real-time status bar telemetry.
+* **Visual / UI Behavior:** Ribbon bot icon opens bridge inspector; status bar displays connection health; accessible semantic modal dialogs.
+* **Code Anchors (Grep Targets):** `plugin/src/ui/inspector-modal.ts`, `plugin/src/ui/confirm-modal.ts`, `plugin/src/main.ts`, `plugin/styles.css`

@@ -92,3 +92,18 @@ flowchart LR
 * **Code Anchors (Grep Targets):**
   * `scripts/deeptutor_sync.py` -> `convert_epub_to_markdown`, `ingest_into_deeptutor`
   * `scripts/deeptutor_setup.json` -> `embedding`
+
+### [SUBSYSTEM: UI-UX-Parity-And-Accessibility] | Aliases: status bar, ribbon icon, inspector modal, confirm modal
+> **1-Line Summary:** Integrates native Obsidian workspace UI touchpoints (ribbon bot launcher, live localhost bridge Status Bar item, InspectorModal, ConfirmModal) and WCAG AA accessibility styles.
+* **Architecture / Subsystem Role:** Standardizes the plugin surface across desktop and mobile Obsidian clients with keyboard accessibility, reduced-motion safety, and high-visibility status telemetry.
+* **Component Diagram:**
+```mermaid
+graph LR
+    subgraph UI_Parity["UI/UX Universal Baseline"]
+        Ribbon["Ribbon Bot Icon"] --> Inspector["BridgeInspectorModal"]
+        StatusBar["Status Bar Item"] --> Inspector
+        Teardown["Bridge Teardown"] --> Confirm["ConfirmModal Guardrail"]
+        CSS["Universal CSS"] --> A11y["Focus-Visible & Reduced Motion"]
+    end
+```
+* **Code Anchors (Grep Targets):** `plugin/src/main.ts`, `plugin/styles.css`
