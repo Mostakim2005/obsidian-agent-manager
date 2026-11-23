@@ -1,7 +1,7 @@
 {
     "id":  "obsidian-agent-manager",
     "name":  "Obsidian Agent Manager",
-    "version":  "0.1.1",
+    "version":  "0.2.0",
     "minAppVersion":  "1.5.0",
     "description":  "Lightweight localhost REST \u0026 MCP bridge and workspace manager for external AI agent harnesses and DeepTutor.",
     "author":  "Mostakim2005",

@@ -8,12 +8,25 @@ import { applyEdit, createNote, openNoteAtLine, readNoteSlice } from "./editor";
 import { getActiveAttachments, getNoteGraph, searchVaultMetadata } from "./graph";
 import { handleMcpRequest } from "./mcp";
 import { PinnedInbox } from "./menus";
+import {
+  appendVaultFile,
+  deleteVaultFile,
+  executeObsidianCommand,
+  listObsidianCommands,
+  listVaultDirectory,
+  listVaultTags,
+  moveVaultFile,
+  patchVaultNote,
+  readVaultNotePayload,
+  simpleTextSearch,
+  writeVaultFile,
+} from "./rest-compat";
 import { constantTimeEquals, isAllowedHost } from "./security";
 import { BridgeSettings, EditRequest } from "./types";
 
 const MAX_BODY_BYTES = 5 * 1024 * 1024;
 
-function readJsonBody(req: http.IncomingMessage): Promise<Record<string, unknown>> {
+function readRawBody(req: http.IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     let totalBytes = 0;
@@ -37,20 +50,37 @@ function readJsonBody(req: http.IncomingMessage): Promise<Record<string, unknown
     req.on("end", () => {
       if (settled) return;
       settled = true;
-      try {
-        const raw = Buffer.concat(chunks).toString("utf8");
-        resolve(raw ? (JSON.parse(raw) as Record<string, unknown>) : {});
-      } catch {
-        reject(new Error("Invalid JSON body"));
-      }
+      resolve(Buffer.concat(chunks).toString("utf8"));
     });
     req.on("error", (err) => fail(err instanceof Error ? err : new Error(String(err))));
   });
 }
 
+async function readJsonBody(req: http.IncomingMessage): Promise<Record<string, unknown>> {
+  const raw = await readRawBody(req);
+  if (!raw) return {};
+  try {
+    return JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    throw new Error("Invalid JSON body");
+  }
+}
+
 function sendJson(res: http.ServerResponse, status: number, payload: unknown) {
   res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
   res.end(JSON.stringify(payload));
+}
+
+function sendText(res: http.ServerResponse, status: number, text: string, contentType = "text/markdown; charset=utf-8") {
+  res.writeHead(status, { "Content-Type": contentType });
+  res.end(text);
+}
+
+function decodeRouteSegment(raw: string): string {
+  return raw
+    .split("/")
+    .map((part) => decodeURIComponent(part))
+    .join("/");
 }
 
 export class BridgeServer {
@@ -122,16 +152,38 @@ export class BridgeServer {
 
     const url = new URL(req.url ?? "/", `http://127.0.0.1:${port}`);
     if (req.method === "GET" && url.pathname === "/health") {
-      return sendJson(res, 200, { ok: true, vaultName: this.app.vault.getName(), version: "0.1.0" });
+      return sendJson(res, 200, { ok: true, vaultName: this.app.vault.getName(), version: "0.2.0" });
     }
 
     const auth = req.headers.authorization ?? "";
     const expected = `Bearer ${apiToken}`;
-    if (!apiToken || !constantTimeEquals(auth, expected)) {
+    const isAuthenticated = Boolean(apiToken && constantTimeEquals(auth, expected));
+
+    // Local REST API compatible root status endpoint (GET /)
+    if (req.method === "GET" && url.pathname === "/") {
+      return sendJson(res, 200, {
+        status: "OK",
+        authenticated: isAuthenticated,
+        service: "Obsidian Agent Manager",
+        vaultName: this.app.vault.getName(),
+        versions: {
+          obsidian: "1.x",
+          self: "0.2.0",
+        },
+        manifest: {
+          id: "obsidian-agent-manager",
+          name: "Obsidian Agent Manager",
+          version: "0.2.0",
+        },
+      });
+    }
+
+    if (!isAuthenticated) {
       return sendJson(res, 401, { error: "Unauthorized" });
     }
 
     try {
+      // --- Native Obsidian Agent Manager endpoints ---
       if (req.method === "GET" && url.pathname === "/context") {
         return sendJson(res, 200, getWorkspaceSnapshot(this.app));
       }
@@ -157,6 +209,10 @@ export class BridgeServer {
           200,
           await createNote(this.app, String(body.path ?? ""), String(body.content ?? ""), body.overwrite === true)
         );
+      }
+      if (req.method === "POST" && url.pathname === "/note/move") {
+        const body = await readJsonBody(req);
+        return sendJson(res, 200, await moveVaultFile(this.app, String(body.from ?? ""), String(body.to ?? "")));
       }
       if (req.method === "GET" && url.pathname === "/search") {
         const q = url.searchParams.get("q") ?? "";
@@ -187,9 +243,146 @@ export class BridgeServer {
         }
         return sendJson(res, 200, result);
       }
+
+      // --- Local REST API / cli-anything-obsidian compatibility routes ---
+      if (req.method === "GET" && (url.pathname === "/tags" || url.pathname === "/tags/")) {
+        return sendJson(res, 200, listVaultTags(this.app));
+      }
+
+      if (req.method === "GET" && (url.pathname === "/commands" || url.pathname === "/commands/")) {
+        return sendJson(res, 200, listObsidianCommands(this.app));
+      }
+
+      if (req.method === "POST" && url.pathname.startsWith("/commands/")) {
+        const cmdId = decodeURIComponent(url.pathname.slice("/commands/".length).replace(/\/+$/, ""));
+        return sendJson(res, 200, executeObsidianCommand(this.app, cmdId));
+      }
+
+      if (req.method === "POST" && url.pathname.startsWith("/open/")) {
+        const targetPath = decodeRouteSegment(url.pathname.slice("/open/".length));
+        return sendJson(res, 200, await openNoteAtLine(this.app, targetPath));
+      }
+
+      if (req.method === "POST" && (url.pathname === "/search/simple" || url.pathname === "/search/simple/")) {
+        const q = url.searchParams.get("query") ?? "";
+        const ctxLen = Number(url.searchParams.get("contextLength") ?? "100");
+        return sendJson(res, 200, await simpleTextSearch(this.app, q, ctxLen));
+      }
+
+      if (req.method === "POST" && (url.pathname === "/search" || url.pathname === "/search/")) {
+        const raw = await readRawBody(req);
+        const q = url.searchParams.get("query") ?? raw.trim();
+        return sendJson(res, 200, await simpleTextSearch(this.app, q, 100));
+      }
+
+      if (url.pathname === "/active" || url.pathname === "/active/") {
+        const accept = String(req.headers.accept ?? "");
+        if (req.method === "GET") {
+          const note = await readVaultNotePayload(this.app);
+          if (accept.includes("application/vnd.olrapi.note+json") || accept.includes("application/json")) {
+            return sendJson(res, 200, note);
+          }
+          return sendText(res, 200, note.content);
+        }
+        if (req.method === "PUT") {
+          const active = this.app.workspace.getActiveFile();
+          if (!active) return sendJson(res, 404, { error: "No active note" });
+          const body = await readRawBody(req);
+          await writeVaultFile(this.app, active.path, body);
+          res.writeHead(204);
+          res.end();
+          return;
+        }
+        if (req.method === "POST") {
+          const body = await readRawBody(req);
+          await appendVaultFile(this.app, undefined, body);
+          res.writeHead(204);
+          res.end();
+          return;
+        }
+        if (req.method === "PATCH") {
+          const body = await readRawBody(req);
+          const targetType = String(req.headers["target-type"] ?? "") as "heading" | "frontmatter" | "block" | "";
+          const target = req.headers.target ? decodeURIComponent(String(req.headers.target)) : undefined;
+          const operation = String(req.headers.operation ?? "replace") as "append" | "prepend" | "replace";
+          await patchVaultNote(this.app, undefined, {
+            targetType: targetType || undefined,
+            target,
+            operation,
+            content: body,
+          });
+          res.writeHead(204);
+          res.end();
+          return;
+        }
+        if (req.method === "DELETE") {
+          const active = this.app.workspace.getActiveFile();
+          if (!active) return sendJson(res, 404, { error: "No active note" });
+          await deleteVaultFile(this.app, active.path);
+          res.writeHead(204);
+          res.end();
+          return;
+        }
+      }
+
+      if (url.pathname === "/vault" || url.pathname === "/vault/" || url.pathname.startsWith("/vault/")) {
+        const subRaw = url.pathname.length > "/vault/".length ? url.pathname.slice("/vault/".length) : "";
+        const isDirectoryRequest = url.pathname === "/vault" || url.pathname.endsWith("/");
+        const decoded = subRaw ? decodeRouteSegment(subRaw) : "";
+        const accept = String(req.headers.accept ?? "");
+
+        if (req.method === "GET") {
+          if (isDirectoryRequest) {
+            return sendJson(res, 200, listVaultDirectory(this.app, decoded));
+          }
+          const note = await readVaultNotePayload(this.app, decoded);
+          if (accept.includes("application/vnd.olrapi.note+json") || accept.includes("application/json")) {
+            return sendJson(res, 200, note);
+          }
+          return sendText(res, 200, note.content);
+        }
+        if (req.method === "PUT") {
+          const body = await readRawBody(req);
+          await writeVaultFile(this.app, decoded, body);
+          res.writeHead(204);
+          res.end();
+          return;
+        }
+        if (req.method === "POST") {
+          const body = await readRawBody(req);
+          await appendVaultFile(this.app, decoded, body);
+          res.writeHead(204);
+          res.end();
+          return;
+        }
+        if (req.method === "PATCH") {
+          const body = await readRawBody(req);
+          const targetType = String(req.headers["target-type"] ?? "") as "heading" | "frontmatter" | "block" | "";
+          const target = req.headers.target ? decodeURIComponent(String(req.headers.target)) : undefined;
+          const operation = String(req.headers.operation ?? "replace") as "append" | "prepend" | "replace";
+          await patchVaultNote(this.app, decoded, {
+            targetType: targetType || undefined,
+            target,
+            operation,
+            content: body,
+          });
+          res.writeHead(204);
+          res.end();
+          return;
+        }
+        if (req.method === "DELETE") {
+          await deleteVaultFile(this.app, decoded);
+          res.writeHead(204);
+          res.end();
+          return;
+        }
+      }
+
       return sendJson(res, 404, { error: "Not found" });
     } catch (err) {
-      return sendJson(res, 400, { error: err instanceof Error ? err.message : String(err) });
+      const msg = err instanceof Error ? err.message : String(err);
+      const status = msg.toLowerCase().includes("not found") ? 404 : 400;
+      return sendJson(res, status, { error: msg });
     }
   }
 }

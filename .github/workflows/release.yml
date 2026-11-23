@@ -38,4 +38,5 @@ jobs:
           files: |
             plugin/main.js
             plugin/manifest.json
+            plugin/styles.css
           generate_release_notes: true

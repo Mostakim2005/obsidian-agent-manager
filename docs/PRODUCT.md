@@ -37,7 +37,15 @@
   * `plugin/src/editor.ts` -> `applyEdit`
 
 ### [FEATURE: Built-In-Streamable-MCP-Server] | Aliases: mcp server, jsonrpc, tools list, antigravity mcp, claude code mcp
-> **1-Line Summary:** Built-in JSON-RPC 2.0 Streamable HTTP Model Context Protocol endpoint on `POST /mcp` exposing 8 tools (including note creation) to external coding agents without extra Node processes.
+> **1-Line Summary:** Built-in JSON-RPC 2.0 Streamable HTTP Model Context Protocol endpoint on `POST /mcp` exposing 16 tools (workspace context, inbox, graph, read/edit/create/append/patch/delete/move, vault listing, metadata & full-text search, tags, and Obsidian commands) without extra Node processes.
+
+### [FEATURE: Local-REST-API-And-CLI-Compatibility] | Aliases: cli-anything-obsidian, local rest api, vault crud, commands api, tags api, simple search
+> **1-Line Summary:** Zero-dependency drop-in compatibility layer for `cli-anything-obsidian` and Local REST API clients (`GET /`, `/vault/*`, `/active/*`, `/open/*`, `/commands/*`, `/tags/`, `/search/simple/`, `/search/`) replacing the 4.36 MB `obsidian-local-rest-api` plugin.
+* **User Intention (Non-Negotiable):** Maintain a single ultra-fast (<20 ms startup, <55 KB bundle) localhost REST + MCP bridge for external CLIs (`cli-anything-obsidian`), RAG Hub, DeepTutor, GaussBoard, and Mermaid Manager.
+* **Code Anchors (Grep Targets):**
+  * `plugin/src/rest-compat.ts` -> `listVaultDirectory`, `readVaultNotePayload`, `writeVaultFile`, `appendVaultFile`, `patchVaultNote`, `deleteVaultFile`, `moveVaultFile`, `listVaultTags`, `listObsidianCommands`, `executeObsidianCommand`, `simpleTextSearch`
+  * `plugin/src/server.ts` -> `BridgeServer.handleRequest`
+  * `plugin/src/mcp.ts` -> `MCP_TOOLS`, `handleMcpRequest`
 * **User Intention (Non-Negotiable):** One-click integration with modern AI harnesses (Antigravity, Claude Code, Cursor) using standard MCP configuration.
 * **Visual / UI Behavior:** Settings tab provides a "Copy MCP Config" button that copies ready-to-paste JSON.
 * **Code Anchors (Grep Targets):**

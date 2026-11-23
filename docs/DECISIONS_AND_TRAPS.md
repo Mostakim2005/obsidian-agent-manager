@@ -89,3 +89,9 @@ flowchart LR
 * **Protected Code Anchors (Grep Targets):**
   * `plugin/src/security.ts` -> `normalizeSafeVaultPath`
   * `plugin/src/editor.ts` -> `createNote`
+
+### [DECISION: Absorb-Local-REST-API-Into-Agent-Manager] | Aliases: local rest api, cli-anything-obsidian, startup optimization, unified mcp
+> **1-Line Summary:** Absorbed Local REST API routes and MCP tools into zero-dependency `plugin/src/rest-compat.ts` and switched `onload()` to non-blocking async startup, retiring the 4.36 MB `obsidian-local-rest-api` plugin.
+* **Decision Maker:** `[DECIDED BY: HUMAN]`
+* **Protected Code Anchors (Grep Targets):** `plugin/src/rest-compat.ts`, `plugin/src/server.ts` -> `BridgeServer.handleRequest`, `plugin/src/mcp.ts` -> `MCP_TOOLS`, `plugin/src/main.ts` -> `AgentManagerPlugin.onload`
+

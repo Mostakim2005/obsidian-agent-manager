@@ -13,13 +13,16 @@ export default class AgentManagerPlugin extends Plugin {
   inbox = new PinnedInbox();
   private server: BridgeServer | null = null;
   private statusBarEl: HTMLElement | null = null;
+  private settingsReady: Promise<void> = Promise.resolve();
 
-  async onload() {
-    await this.loadSettings();
-    if (!this.settings.apiToken) {
-      this.settings.apiToken = crypto.randomBytes(32).toString("hex");
-      await this.saveSettings();
-    }
+  onload() {
+    this.settingsReady = this.loadSettings().then(async () => {
+      if (!this.settings.apiToken) {
+        this.settings.apiToken = crypto.randomBytes(32).toString("hex");
+        await this.saveSettings();
+      }
+      await this.restartServer(false);
+    });
 
     this.addSettingTab(new AgentManagerSettingTab(this.app, this));
 
@@ -114,8 +117,6 @@ export default class AgentManagerPlugin extends Plugin {
         attachFileMenu(this.app, this.inbox, menu, file);
       })
     );
-
-    await this.restartServer(false);
   }
 
   async restartServer(notify = true): Promise<void> {

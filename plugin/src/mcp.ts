@@ -3,6 +3,17 @@ import { getWorkspaceSnapshot } from "./context";
 import { applyEdit, createNote, openNoteAtLine, readNoteSlice } from "./editor";
 import { getActiveAttachments, getNoteGraph, searchVaultMetadata } from "./graph";
 import { PinnedInbox } from "./menus";
+import {
+  appendVaultFile,
+  deleteVaultFile,
+  executeObsidianCommand,
+  listObsidianCommands,
+  listVaultDirectory,
+  listVaultTags,
+  moveVaultFile,
+  patchVaultNote,
+  simpleTextSearch,
+} from "./rest-compat";
 import { EditRequest } from "./types";
 
 const MCP_TOOLS = [
@@ -65,6 +76,58 @@ const MCP_TOOLS = [
     },
   },
   {
+    name: "obsidian_append_note",
+    description: "Append Markdown content to a note (or the active note if path is omitted), preserving Ctrl+Z undo on the active note.",
+    inputSchema: {
+      type: "object",
+      required: ["content"],
+      properties: {
+        path: { type: "string" },
+        content: { type: "string" },
+      },
+    },
+  },
+  {
+    name: "obsidian_patch_note",
+    description: "Patch a specific heading section or YAML frontmatter key inside a note (or the active note).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: { type: "string" },
+        targetType: { type: "string", enum: ["heading", "frontmatter", "block"] },
+        target: { type: "string" },
+        content: { type: "string" },
+        frontmatterPatch: { type: "object" },
+      },
+    },
+  },
+  {
+    name: "obsidian_delete_note",
+    description: "Move a vault note or file to the system trash.",
+    inputSchema: {
+      type: "object",
+      required: ["path"],
+      properties: { path: { type: "string" } },
+    },
+  },
+  {
+    name: "obsidian_move_note",
+    description: "Move or rename a note in the vault while automatically updating wikilinks.",
+    inputSchema: {
+      type: "object",
+      required: ["from", "to"],
+      properties: { from: { type: "string" }, to: { type: "string" } },
+    },
+  },
+  {
+    name: "obsidian_list_vault",
+    description: "List files and folders inside the vault root or a specific subfolder.",
+    inputSchema: {
+      type: "object",
+      properties: { path: { type: "string" } },
+    },
+  },
+  {
     name: "obsidian_open_note",
     description: "Open a note in Obsidian and optionally jump to a 1-indexed line.",
     inputSchema: {
@@ -75,11 +138,35 @@ const MCP_TOOLS = [
   },
   {
     name: "obsidian_search_vault",
-    description: "Search vault notes by path, tags, or headings.",
+    description: "Search vault notes by metadata (path, tags, headings) or full text content.",
     inputSchema: {
       type: "object",
       required: ["query"],
-      properties: { query: { type: "string" }, limit: { type: "number" } },
+      properties: {
+        query: { type: "string" },
+        limit: { type: "number" },
+        fullText: { type: "boolean" },
+        contextLength: { type: "number" },
+      },
+    },
+  },
+  {
+    name: "obsidian_list_tags",
+    description: "List all tags used across the vault with occurrence counts.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "obsidian_list_commands",
+    description: "List all registered Obsidian commands with their command IDs and display names.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "obsidian_execute_command",
+    description: "Execute any Obsidian command by its command ID.",
+    inputSchema: {
+      type: "object",
+      required: ["commandId"],
+      properties: { commandId: { type: "string" } },
     },
   },
 ];
@@ -96,7 +183,7 @@ export async function handleMcpRequest(app: App, inbox: PinnedInbox, rpc: Record
       result: {
         protocolVersion: "2025-03-26",
         capabilities: { tools: {} },
-        serverInfo: { name: "obsidian-agent-manager", version: "0.1.0" },
+        serverInfo: { name: "obsidian-agent-manager", version: "0.2.0" },
       },
     };
   }
@@ -146,6 +233,26 @@ export async function handleMcpRequest(app: App, inbox: PinnedInbox, rpc: Record
         case "obsidian_create_note":
           data = await createNote(app, String(args.path ?? ""), String(args.content ?? ""), args.overwrite === true);
           break;
+        case "obsidian_append_note":
+          data = await appendVaultFile(app, args.path as string | undefined, String(args.content ?? ""));
+          break;
+        case "obsidian_patch_note":
+          data = await patchVaultNote(app, args.path as string | undefined, {
+            targetType: args.targetType as "heading" | "frontmatter" | "block" | undefined,
+            target: args.target as string | undefined,
+            content: args.content as string | undefined,
+            frontmatterPatch: args.frontmatterPatch as Record<string, unknown> | undefined,
+          });
+          break;
+        case "obsidian_delete_note":
+          data = await deleteVaultFile(app, String(args.path ?? ""));
+          break;
+        case "obsidian_move_note":
+          data = await moveVaultFile(app, String(args.from ?? ""), String(args.to ?? ""));
+          break;
+        case "obsidian_list_vault":
+          data = listVaultDirectory(app, typeof args.path === "string" ? args.path : "");
+          break;
         case "obsidian_open_note":
           if (typeof args.path !== "string" || !args.path.trim()) {
             throw new Error("path is required");
@@ -153,7 +260,24 @@ export async function handleMcpRequest(app: App, inbox: PinnedInbox, rpc: Record
           data = await openNoteAtLine(app, args.path, args.line as number | undefined);
           break;
         case "obsidian_search_vault":
-          data = searchVaultMetadata(app, String(args.query ?? ""), (args.limit as number | undefined) ?? 25);
+          data =
+            args.fullText === true
+              ? await simpleTextSearch(
+                  app,
+                  String(args.query ?? ""),
+                  (args.contextLength as number | undefined) ?? 100,
+                  (args.limit as number | undefined) ?? 25
+                )
+              : searchVaultMetadata(app, String(args.query ?? ""), (args.limit as number | undefined) ?? 25);
+          break;
+        case "obsidian_list_tags":
+          data = listVaultTags(app);
+          break;
+        case "obsidian_list_commands":
+          data = listObsidianCommands(app);
+          break;
+        case "obsidian_execute_command":
+          data = executeObsidianCommand(app, String(args.commandId ?? ""));
           break;
         default:
           throw new Error(`Unknown tool: ${toolName}`);
